@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { notebookImage } from '../lib/mealtime/images.js';
 import { linkBase } from '../lib/public-url.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
@@ -70,7 +71,7 @@ router.post('/', wrap(async (req, res) => {
   if (made) return res.status(200).json(parse(made));
   // #183: honor the caller's defaultShareVisibility when the client
   // omits an explicit value. Same rule applies to recipes (is_recipe=1).
-  const vis = visibility || resolveNewItemVisibility(u);
+  const vis = source_app === 'mealtime' ? 'private' : visibility || resolveNewItemVisibility(u);
   const cleanSourceApp = source_app ? String(source_app).slice(0, 40) : null;
   const cleanSourceExtId = source_external_id ? String(source_external_id).slice(0, 128) : null;
   const cleanSourceUrl = source_url ? String(source_url).slice(0, 2048) : null;
@@ -96,7 +97,7 @@ router.post('/', wrap(async (req, res) => {
   const _shouldLocalizeImg = img_url && (cleanSourceApp
     ? (img_url.startsWith('http') || img_url.startsWith('data:'))
     : isExternalUrl(img_url));
-  const localImg = _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
+  const localImg = cleanSourceApp === 'mealtime' ? notebookImage(u, img_url) : _shouldLocalizeImg ? await localizeImage(img_url, { trustedOrigins: _trustedImgOrigins, allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null);
   const warningsCol = Array.isArray(import_warnings) && import_warnings.length
     ? JSON.stringify(import_warnings.map(w => String(w || '').slice(0, 400)).filter(Boolean).slice(0, 20))
     : null;
@@ -141,6 +142,7 @@ router.put('/:id', wrap(async (req, res) => {
   if (!existing) return res.status(404).json({ error: 'Not found' });
   if (u != null && existing.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
   const { name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, visibility, favorite } = req.body;
+  if (existing.source_app === 'mealtime' && visibility && visibility !== 'private') return res.status(400).json({ error: 'MealTime notebooks are personal; sharing is not enabled for this source' });
   const fav = favorite != null ? (favorite ? 1 : 0) : existing.favorite;
   // Body explicitly set servings → take it (null clears, number clamps to >=1).
   // Body omitted servings entirely → preserve the existing row value (null stays null).
@@ -153,7 +155,7 @@ router.put('/:id', wrap(async (req, res) => {
   // silently failed to clear the photo on save. Parallel to the foods.js
   // PUT fix for kilkalabs's report on #74 follow-up. Localize supplied
   // images just as POST does, so the diary can resolve edited recipe photos.
-  const img = 'img_url' in req.body
+  const img = existing.source_app === 'mealtime' && 'img_url' in req.body ? notebookImage(u, img_url) : 'img_url' in req.body
     ? ((img_url && isExternalUrl(img_url)) ? await localizeImage(img_url, { allowPrivate: ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS') }) : (img_url || null))
     : existing.img_url;
   db.prepare(
@@ -198,6 +200,7 @@ router.patch('/:id/share', wrap((req, res) => {
   if (!meal) return res.status(404).json({ error: 'Not found' });
   if (u != null && meal.user_id !== u) return res.status(403).json({ error: 'Forbidden' });
 
+  if (meal.source_app === 'mealtime') return res.status(400).json({ error: 'MealTime notebooks are personal; sharing is not enabled for this source' });
   const { visibility, user_ids } = req.body;
   if (!['private', 'group', 'specific'].includes(visibility)) {
     return res.status(400).json({ error: 'visibility must be private, group, or specific' });

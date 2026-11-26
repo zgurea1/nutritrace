@@ -18,6 +18,7 @@
   import { scaleFactor as _unitScaleFactor, amountAndUnit } from '../lib/units.js';
   import { showSuccess, showError } from '../stores/toast.js';
   import { editorState, clearMealEditorState } from '../stores/editorState.js';
+  import { readRecipe, encodeRecipe, recipePortion } from '../lib/mealtime/recipe.js';
   import { Nutrition, NUTRIMENTS } from '../lib/nutrition.js';
   import { foodsShowCategories, foodsShowLabels, foodsShowNotes, foodCategories, cropPhotos, visibleNutriments, nutrimentsOrder, catName as _catName, catDisplay as _catDisplay, energyUnit, foodsSort, mealsSort, recipesSort, offEnabled, usdaEnabled, usdaApiKey } from '../stores/settings.js';
   import { fitImageDataUrl } from '../lib/image-fit.js';
@@ -34,6 +35,7 @@
   let isRecipe = false;
 
   // Photo state
+  let notebook = null, notebookIngredients = '', notebookInstructions = '', notebookNotes = '';
   let photoPreviewUrl = '';
   let cameraOpen = false;
   let showUrlInput = false;
@@ -76,7 +78,7 @@
   const _persistDraft = makeDebouncedPersist(_draftKey, 400);
   // Bundle every field the user can mutate before save. Transient
   // picker/camera UI state is deliberately NOT persisted.
-  $: _draftState = { meal, photoPreviewUrl, recipeAmount, recipeUnit, recipeYields, isRecipe };
+  $: _draftState = { meal, photoPreviewUrl, recipeAmount, recipeUnit, recipeYields, isRecipe, notebookIngredients, notebookInstructions, notebookNotes };
   $: if (_draftReady && _persistDraft) _persistDraft(_draftState);
   // Banner state so a restored draft is visible + dismissable.
   let _draftRestored = false;
@@ -157,6 +159,14 @@
     }
     if (meal.imgUrl) photoPreviewUrl = meal.imgUrl;
 
+    const imported = readRecipe(meal.notes);
+    notebook = imported?.recipe || null;
+    if (notebook) {
+      isRecipe = true; store = 'recipes';
+      notebookIngredients = notebook.ingredients.join('\n');
+      notebookInstructions = notebook.instructions.join('\n\n');
+      notebookNotes = imported.userNotes;
+    }
     // ── Restore any in-progress draft (#157) ────────────────────────
     // Overlays a fresh (<4h) draft on top of what we just loaded so
     // the user's typing survives a camera-triggered process death.
@@ -173,6 +183,10 @@
       const _draft = loadDraft(_draftKey);
       if (_draft && typeof _draft === 'object' && Object.keys(_draft).length > 0) {
         if (_draft.meal)                             meal = { ...meal, ..._draft.meal };
+        if (notebook) {
+          for (const [key, set] of [['notebookIngredients', v => notebookIngredients = v], ['notebookInstructions', v => notebookInstructions = v], ['notebookNotes', v => notebookNotes = v]])
+            if (typeof _draft[key] === 'string') set(_draft[key]);
+        }
         if (typeof _draft.photoPreviewUrl === 'string') photoPreviewUrl = _draft.photoPreviewUrl;
         if (_draft.recipeAmount != null)             recipeAmount = _draft.recipeAmount;
         if (_draft.recipeUnit)                       recipeUnit = _draft.recipeUnit;
@@ -204,7 +218,8 @@
         ? Math.max(1, parseInt(meal.servings) || 1)
         : 1;
       recipeYields = isExistingRecipe && !hasExplicitServings ? '' : effectiveServings;
-      if (meal.portion) recipeAmount = (parseFloat(meal.portion) || 0) * effectiveServings;
+      if (notebook?.cookedYieldG === null) recipeAmount = '';
+      else if (meal.portion) recipeAmount = (parseFloat(meal.portion) || 0) * effectiveServings;
       if (meal.unit) recipeUnit = meal.unit;
     }
 
@@ -344,6 +359,15 @@
       recipeUnit      = _serverBaseline.recipeUnit;
       recipeYields    = _serverBaseline.recipeYields;
       isRecipe        = _serverBaseline.isRecipe;
+      const restored = readRecipe(meal.notes);
+      if (restored) {
+        notebook = restored.recipe;
+        notebookIngredients = notebook.ingredients.join('\n');
+        notebookInstructions = notebook.instructions.join('\n\n');
+        notebookNotes = restored.userNotes;
+        recipeYields = meal.servings || 1;
+        recipeAmount = notebook.cookedYieldG === null ? '' : String(notebook.cookedYieldG);
+      }
     }
     clearDraft(_draftKey);
     _draftRestored = false;
@@ -793,7 +817,7 @@
   }
 
   let showAllNutrients = false;
-  $: totals = Nutrition.sum((meal.items||[]).map(i => Nutrition.calculate(i)));
+  $: totals = notebook ? notebook.nutrition : Nutrition.sum((meal.items||[]).map(i => Nutrition.calculate(i)));
 
   // ── Category chips ─────────────────────────────────────────────────────────
   function toggleCat(cat) {
@@ -824,7 +848,7 @@
   // ── Save ──────────────────────────────────────────────────────────────────
   async function save() {
     if (!meal.name.trim()) { showError($_('food_editor.errors.name_required')); return; }
-    if (!meal.items.length) { showError($_('meal_editor.errors.no_ingredients')); return; }
+    if (!notebook && !meal.items.length) { showError($_('meal_editor.errors.no_ingredients')); return; }
     saving = true;
     try {
       const item = {
@@ -833,7 +857,18 @@
         nutrition: totals,
         is_recipe: isRecipe,
       };
-      if (isRecipe) {
+      if (notebook) {
+        const weight = String(recipeAmount ?? '').trim();
+        const measured = weight ? parseDecimal(weight) : null;
+        if (weight && (!Number.isFinite(measured) || measured <= 0)) throw Error($_('mealtime.invalid_weight'));
+        const yields = Number(recipeYields);
+        const updated = { ...notebook, title: meal.name,
+          ingredients: notebookIngredients.split('\n').map(s => s.trim()).filter(Boolean),
+          instructions: notebookInstructions.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean),
+          cookedYieldG: measured,
+        };
+        Object.assign(item, recipePortion(updated, yields), { notes: encodeRecipe(updated, notebookNotes), is_recipe: true });
+      } else if (isRecipe) {
         const totalGrams = parseDecimal(recipeAmount) || Math.round(meal.items.reduce((s,it)=>s+toGrams(it.portion,it.unit),0)) || 100;
         const explicit = recipeYields !== '' && recipeYields != null && !Number.isNaN(parseInt(recipeYields));
         const yields = explicit ? Math.max(1, parseInt(recipeYields) || 1) : 1;
@@ -1000,10 +1035,12 @@
           Upload
           <input type="file" accept="image/*" style="display:none" on:change={handleFileChange} />
         </label>
+        {#if !notebook}
         <button class="btn btn-ghost photo-btn" on:click={() => { showUrlInput = !showUrlInput; photoUrl = ''; }}>
           <span class="material-symbols-rounded" style="font-size:18px">link</span>
           URL
         </button>
+        {/if}
       </div>
       {#if showUrlInput}
         <div class="photo-url-row">
@@ -1029,9 +1066,9 @@
           <span class="material-symbols-rounded ct-source-icon">restaurant_menu</span>
           <div class="ct-source-text">
             <span class="ct-source-label">
-              {meal.source_app === 'cooktrace' ? 'From CookTrace' : `From ${meal.source_app}`}
+              {notebook ? 'MealTime' : meal.source_app === 'cooktrace' ? 'From CookTrace' : `From ${meal.source_app}`}
             </span>
-            {#if meal.source_url}
+            {#if meal.source_url && !notebook}
               <a class="ct-source-link" href={meal.source_url} target="_blank" rel="noopener noreferrer">
                 Open original
                 <span class="material-symbols-rounded">open_in_new</span>
@@ -1090,6 +1127,12 @@
     {#if isRecipe}
       <div class="card editor-card">
         <div class="editor-card-title">{$_('meal_editor.servings.title')}</div>
+        {#if notebook}
+          <p class="text-3">{$_('mealtime.declared_help')}</p>
+          <label for="mealtime-final-weight">{$_('mealtime.final_weight')}</label>
+          <input id="mealtime-final-weight" class="input" type="text" inputmode="decimal" use:decimalInput bind:value={recipeAmount} placeholder={$_('mealtime.unknown_weight')} />
+          {#if !String(recipeAmount ?? '').trim()}<p role="status">{$_('mealtime.portions_only')}</p>{/if}
+        {:else}
         <div style="display:flex;gap:10px;align-items:center">
           <input class="input" type="text" inputmode="decimal" use:decimalInput
             placeholder={$_('meal_editor.servings.amount_placeholder')} bind:value={recipeAmount} style="flex:1" />
@@ -1098,18 +1141,19 @@
           </div>
         </div>
         <p class="text-3" style="font-size:12px;margin:0">{$_('meal_editor.servings.total_weight_hint')}</p>
+        {/if}
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
           <input class="input" type="number" min="1" step="1"
             bind:value={recipeYields} style="flex:1" />
           <span class="text-3" style="font-size:13px;width:100px;text-align:center">{$_('meal_editor.servings.yields_unit')}</span>
         </div>
         <p class="text-3" style="font-size:12px;margin:0">{$_('meal_editor.servings.yields_hint')}</p>
-        {#if parseDecimal(recipeAmount) > 0 && (parseInt(recipeYields) || 0) >= 1}
+        {#if (notebook || parseDecimal(recipeAmount) > 0) && (parseInt(recipeYields) || 0) >= 1}
           {@const _y = Math.max(1, parseInt(recipeYields) || 1)}
           {@const _g = Math.round((parseDecimal(recipeAmount) / _y) * 10) / 10}
           {@const _perServE = Nutrition.displayEnergy((totals?.calories || 0) / _y, $energyUnit)}
           <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:8px">
-            <p style="margin:0;font-size:13px"><span class="text-3">{$_('meal_editor.servings.per_serving_label')}</span> <strong>{amountAndUnit(_g, recipeUnit)} · {_perServE.value} {_perServE.unit}</strong></p>
+            <p style="margin:0;font-size:13px"><span class="text-3">{$_('meal_editor.servings.per_serving_label')}</span> <strong>{notebook && !String(recipeAmount ?? '').trim() ? amountAndUnit(1, 'serving') : amountAndUnit(_g, notebook ? 'g' : recipeUnit)} · {_perServE.value} {_perServE.unit}</strong></p>
           </div>
         {/if}
       </div>
@@ -1134,7 +1178,11 @@
     {/if}
 
     <!-- Notes -->
-    {#if $foodsShowNotes}
+    {#if notebook}
+      <div class="card editor-card"><div class="editor-card-title">{$_('meal_editor.card_notes')}</div>
+        <textarea class="input" rows="3" style="min-height:72px;resize:vertical" bind:value={notebookNotes} aria-label={$_('meal_editor.card_notes')}></textarea>
+      </div>
+    {:else if $foodsShowNotes}
       <div class="card editor-card">
         <div class="editor-card-title">{$_('meal_editor.card_notes')}</div>
         <textarea class="input" rows="2" placeholder={$_('meal_editor_deep.notes_ph')} bind:value={meal.notes}
@@ -1149,6 +1197,19 @@
          so both cards flow inline as before. -->
     <div class="editor-right-col">
 
+    {#if notebook}
+      <div class="card editor-card">
+        <div class="editor-card-title">{$_('mealtime.ingredients')}</div>
+        <textarea class="input" rows="7" style="min-height:160px;resize:vertical" bind:value={notebookIngredients} aria-label={$_('mealtime.ingredients')}></textarea>
+        <p class="text-3">{$_('mealtime.declared_help')}</p>
+      </div>
+      <div class="card editor-card">
+        <div class="editor-card-title">{$_('mealtime.instructions')}</div>
+        <textarea class="input" rows="9" style="min-height:200px;resize:vertical" bind:value={notebookInstructions} aria-label={$_('mealtime.instructions')}></textarea>
+        <p class="text-3">{notebook.category}</p>
+        <p class="text-3">{notebook.reference}</p>
+      </div>
+    {:else}
     <!-- Ingredients -->
     <div class="card editor-card">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1223,11 +1284,13 @@
       {/if}
     </div>
 
+    {/if}
+
     <!-- Nutrition totals -->
-    {#if meal.items.length > 0}
+    {#if notebook || meal.items.length > 0}
       <div class="card editor-card">
         <div class="editor-card-title">{$_('meal_editor.card_nutrition_totals')}</div>
-        {#each _orderedNutriments.filter(n => (showAllNutrients ? true : _isVisibleByDefault(n)) && totals[n.id]) as n}
+        {#each _orderedNutriments.filter(n => (showAllNutrients ? true : _isVisibleByDefault(n)) && (notebook ? totals[n.id] != null : totals[n.id])) as n}
           {@const _kjMode = n.id === 'calories' && $energyUnit === 'kJ'}
           <div style="display:flex;justify-content:space-between;padding:4px 0">
             <span class="text-sm">{_kjMode ? 'Energy' : n.label}</span>

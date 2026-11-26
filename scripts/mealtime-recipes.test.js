@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { encodeRecipe, readRecipe, recipePortion } from '../src/lib/mealtime/recipe.js';
+const recipe = { version: 1, sourceId: 'breakfast_01', title: 'Test recipe', ingredients: ['Cheese 100 g', 'One egg'], instructions: ['Mix.', 'Bake.'], category: 'Breakfast', reference: 'Authorized test fixture', cookedYieldG: null, nutrition: { calories: 378, proteins: 30.2, fat: 24.3, carbohydrates: 9.1 } };
+test('declared nutrition scales from the immutable whole recipe on every edit', () => {
+  const notes = encodeRecipe(recipe, 'Personal notes');
+  assert.deepEqual(readRecipe(notes).recipe, recipe);
+  assert.equal(readRecipe(notes).userNotes, 'Personal notes');
+  const a = recipePortion(readRecipe(notes).recipe, 2);
+  assert.equal(a.nutrition.calories, 189);
+  assert.deepEqual(recipePortion(readRecipe(notes).recipe, 2), a);
+  assert.equal(a.portion, 1); assert.equal(a.unit, 'serving');
+  assert.equal(recipePortion({ ...recipe, cookedYieldG: 280 }, 2).portion, 140);
+  assert.equal(recipePortion({ ...recipe, cookedYieldG: 280 }, 2).unit, 'g');
+  assert.throws(() => recipePortion(recipe, 0));
+  assert.throws(() => recipePortion(recipe, 1.5));
+  assert.equal(readRecipe('Ordinary recipe notes'), null);
+  assert.equal(readRecipe(notes.replace('"version":1', '"version":2')), null);
+  assert.ok(!Object.hasOwn(a.nutrition, 'fiber'));
+  assert.throws(() => encodeRecipe(recipe, 'x'.repeat(150000)), /too long/);
+  assert.throws(() => encodeRecipe({ ...recipe, ingredients: Array(30).fill('x'.repeat(5000)) }), /too long/);
+});

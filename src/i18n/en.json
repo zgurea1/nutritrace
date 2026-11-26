@@ -2335,5 +2335,24 @@
       "username_required": "Username is required",
       "failed": "Failed to create account"
     }
+  },
+  "mealtime": {
+    "import_title": "Import MealTime notebook",
+    "import_help": "Import your authorized recipes and photos from a MealTime ZIP. Preview first; existing recipes are never overwritten. Requires a server connection.",
+    "archive": "MealTime ZIP archive",
+    "preview": "Check archive",
+    "preview_result": "{recipes} recipes: {create} new, {skipped} already imported, {conflicts} conflicts.",
+    "rights": "I have the right to import these recipes and photos.",
+    "import_action": "Import recipes and photos",
+    "importing": "Importing…",
+    "import_result": "Imported {create} recipes; kept {skipped} existing recipes.",
+    "ingredients": "Ingredients — one per line",
+    "instructions": "Preparation — separate steps with a blank line",
+    "declared_help": "Nutrition is declared for the entire original recipe. Editing ingredients does not recalculate these values. Only supplied nutrients are shown.",
+    "final_weight": "Total cooked weight (g), when measured",
+    "unknown_weight": "Unknown — leave empty",
+    "portions_only": "Cooked weight is unknown. Log this recipe by servings; no gram conversion is available.",
+    "invalid_weight": "Enter a positive measured cooked weight, or leave it empty.",
+    "serving_unit": "servings"
   }
 }

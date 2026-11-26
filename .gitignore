@@ -45,3 +45,6 @@ android/.idea/
 *.aab
 *.keystore
 android/keystore.properties
+
+# Private development runtime and generated recipe archives
+.local/

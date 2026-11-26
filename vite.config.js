@@ -9,6 +9,8 @@ export default defineConfig({
   // without a rebuild.
   base: './',
   server: {
+    // Generated private notebook archives and test data are never dev-server assets.
+    fs: { deny: ['.env', '.env.*', '*.{crt,pem}', '**/.git/**', '**/.local/**'] },
     proxy: {
       '/api':     'http://localhost:3001',
       '/uploads': 'http://localhost:3001',

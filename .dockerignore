@@ -8,3 +8,6 @@ android
 *.apk
 *.aab
 *.keystore
+
+# Private notebook archives, runtime tools and temporary test databases
+.local

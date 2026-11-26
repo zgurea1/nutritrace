@@ -2907,7 +2907,11 @@
         </div>
         <div style="width:100px">
           <label class="form-label" style="font-size:11px;color:var(--text-3);display:block;margin-bottom:4px">Unit</label>
-          <UnitPicker bind:value={editUnit} />
+          {#if editItem?.is_recipe && editItem.unit === 'serving'}
+            <span>{$_('mealtime.serving_unit')}</span>
+          {:else}
+            <UnitPicker bind:value={editUnit} />
+          {/if}
         </div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:16px">

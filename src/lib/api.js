@@ -986,6 +986,15 @@ const _NtApiHttp = {
   },
 };
 
+// Server-backed import deliberately reuses the same auth/CSRF/upload transport.
+export async function importMealTimeNotebook(file, apply = false, rightsConfirmed = false) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('apply', String(apply));
+  form.append('rightsConfirmed', String(rightsConfirmed));
+  return _NtApiHttp._fetch('POST', '/api/mealtime/import', form, true);
+}
+
 // ── Platform-aware NtApi export ────────────────────────────────────────────
 // In Capacitor native standalone mode: use SQLite-backed NtApiNative.
 // In all other cases (web, native + server URL): use the HTTP implementation.

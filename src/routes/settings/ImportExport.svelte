@@ -1,5 +1,6 @@
 <script>
   import SettingsImportExport from '../../components/settings/SettingsImportExport.svelte';
+  import SettingsMealTimeImport from '../../components/settings/SettingsMealTimeImport.svelte';
   import SettingsNutritionImport from '../../components/settings/SettingsNutritionImport.svelte';
   import { isNative, getServerUrl } from '../../lib/platform.js';
 
@@ -11,5 +12,6 @@
   <SettingsImportExport />
   {#if !isNativeLocal}
     <SettingsNutritionImport />
+    <SettingsMealTimeImport />
   {/if}
 </div>

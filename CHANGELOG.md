@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Personal MealTime notebook ZIP import with preview, duplicate/conflict protection, private photographs, full preparation text and declared nutrition/unknown-weight handling. Existing Open Food Facts and normal recipe workflows are retained. See `docs/MEALTIME_IMPORT.md`.
+
 ---
 
 ## [1.4.0] - 2026-10-09

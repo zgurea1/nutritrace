@@ -69,6 +69,10 @@ async function _downloadImage(serverUrl) {
     const response = await CapacitorHttp.get({
       url: serverUrl,
       responseType: 'blob',
+      // Never send our credential to OFF or another image host.
+      ...(getAuthToken() && getServerUrl() && new URL(serverUrl).origin === new URL(getServerUrl()).origin &&
+        new URL(serverUrl).pathname.startsWith(new URL(getServerUrl()).pathname.replace(/\/$/, '') + '/api/mealtime/images/')
+        ? { headers: { Authorization: `Bearer ${getAuthToken()}` } } : {}),
     });
     if (response.status < 200 || response.status >= 300) return null;
 

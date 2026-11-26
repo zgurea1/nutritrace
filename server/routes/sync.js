@@ -9,6 +9,8 @@
  * so the client can remove them locally.
  */
 import { Router } from 'express';
+import { notebookImage } from '../lib/mealtime/images.js';
+import { readRecipe } from '../../src/lib/mealtime/recipe.js';
 import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
@@ -258,7 +260,8 @@ router.post('/push', wrap(async (req, res) => {
     if (f.img_url) f.img_url = await _localizeIfNeeded(f.img_url, ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS'));
   }
   for (const m of meals) {
-    if (m.img_url) m.img_url = await _localizeIfNeeded(m.img_url, ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS'));
+    const source = m.server_id ? db.prepare('SELECT source_app FROM meals WHERE id=? AND user_id IS ?').get(m.server_id, u) : null;
+    if (m.img_url) m.img_url = (source?.source_app === 'mealtime' || readRecipe(m.notes) || String(m.img_url).includes('/api/mealtime/images/')) ? notebookImage(u, m.img_url) : await _localizeIfNeeded(m.img_url, ownerOrOptIn(req, 'ALLOW_PRIVATE_IMAGE_URLS'));
   }
 
   // Last write wins, on the server's clock. A row's updated_at is the
@@ -377,7 +380,7 @@ router.post('/push', wrap(async (req, res) => {
         const mKey = cleanCreateKey(m.client_key);
         const mMade = findByCreateKey('meals', u, mKey);
         if (mMade) { result.meals.push({ client_id: m.client_id, server_id: mMade.id }); continue; }
-        const vis = resolveNewItemVisibility(u);
+        const vis = readRecipe(m.notes) ? 'private' : resolveNewItemVisibility(u);
         const r = db.prepare(
           `INSERT INTO meals (user_id, name, nutrition, items, img_url, notes, is_recipe, portion, unit, servings, favorite, usage_count, last_used_at, visibility, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
